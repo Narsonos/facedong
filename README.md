@@ -2,6 +2,10 @@
 **FaceDong Filter** — a chrome extension that adds more filters to Facebook Marketplace in the harsh Vietnamese real estate rentals market.
 Purely vibecoded.
 
+## How it looks?
+
+![See in action!](image.png)
+
 ## What problem is being solved?
 If you have ever tried renting apartments in Vietnam on FB Marketplace, you may know the struggle. 
 The platform lacks basic filtering instruments, and the listings themselves are a primarily a mess:
