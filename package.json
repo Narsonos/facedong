@@ -1,0 +1,23 @@
+{
+  "name": "fb_rentals",
+  "version": "1.0.0",
+  "description": "**FaceDong Filter** — a chrome extension that adds more filters to Facebook Marketplace in the harsh Vietnamese real estate rentals market.\r Purely vibecoded.",
+  "main": "content.js",
+  "devDependencies": {
+    "jest": "^30.3.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Narsonos/facedong.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Narsonos/facedong/issues"
+  },
+  "homepage": "https://github.com/Narsonos/facedong#readme"
+}

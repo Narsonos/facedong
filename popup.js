@@ -6,7 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
     excludeKeywords: document.getElementById('excludeKeywords'),
     includeKeywords: document.getElementById('includeKeywords'),
     themeSelect: document.getElementById('themeSelect'),
-    saveBtn: document.getElementById('save')
+    saveBtn: document.getElementById('save'),
+    clearCacheBtn: document.getElementById('clearCache')
   };
 
   const applyTheme = (theme) => {
@@ -59,6 +60,21 @@ document.addEventListener('DOMContentLoaded', () => {
       elements.saveBtn.textContent = "Saved!";
       setTimeout(() => {
         elements.saveBtn.textContent = "Save & Apply";
+      }, 1500);
+    });
+  });
+
+  // Clear Cache
+  elements.clearCacheBtn.addEventListener('click', () => {
+    chrome.storage.local.clear(() => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, { action: "clearCache" }).catch(e => {});
+        }
+      });
+      elements.clearCacheBtn.textContent = "Cleared!";
+      setTimeout(() => {
+        elements.clearCacheBtn.textContent = "Clear Cache";
       }, 1500);
     });
   });
