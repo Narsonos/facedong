@@ -1,0 +1,43 @@
+.fb-filter-dimmed {
+  position: relative !important;
+}
+
+.fb-filter-dimmed::before {
+  content: "";
+  position: absolute;
+  top: 0; 
+  left: 0; 
+  right: 0; 
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(2px) grayscale(100%);
+  z-index: 10000;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  border-radius: 8px; /* Facebook cards usually have rounded corners */
+}
+
+/* Reveal on hover */
+.fb-filter-dimmed:hover::before {
+  opacity: 0 !important;
+}
+.fb-filter-dimmed:hover .ntmf-reason-badge {
+  opacity: 0 !important;
+}
+
+.ntmf-reason-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.9);
+  color: #ffcf40; 
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: bold;
+  z-index: 10001;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+  transition: opacity 0.3s ease;
+}
