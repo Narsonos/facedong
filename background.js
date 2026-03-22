@@ -1,11 +1,12 @@
 let queue = [];
 let activeTabId = null;
 let currentUrl = null;
+let currentPrice = null;
 let mainTabId = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'startDeepScan') {
-    queue = request.urls;
+    queue = request.urls; // Now objects {url, existingPrice}
     mainTabId = sender.tab.id;
     processNext();
     sendResponse({ status: 'started' });
@@ -33,12 +34,18 @@ function processNext() {
     return;
   }
 
-  currentUrl = queue.shift();
+  const item = queue.shift();
+  currentUrl = item.url;
+  currentPrice = item.existingPrice;
+
   if (mainTabId) {
     chrome.tabs.sendMessage(mainTabId, { action: 'deepScanProgress', remaining: queue.length }).catch(() => {});
+    chrome.tabs.sendMessage(mainTabId, { action: 'deepScanStatus', url: currentUrl, status: 'Scanning...' }).catch(() => {});
   }
 
-  chrome.tabs.create({ url: currentUrl, active: false }, (tab) => {
+  const targetUrl = new URL(currentUrl);
+  targetUrl.searchParams.set('ntmf_deepscan', '1');
+  chrome.tabs.create({ url: targetUrl.href, active: false }, (tab) => {
     activeTabId = tab.id;
   });
 }
@@ -47,7 +54,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (tabId === activeTabId && changeInfo.status === 'complete') {
     // Inject a little delay before scanning to let React render
     setTimeout(() => {
-      chrome.tabs.sendMessage(tabId, { action: 'performDeepScan', url: currentUrl }).catch((err) => {
+      chrome.tabs.sendMessage(tabId, { 
+        action: 'performDeepScan', 
+        url: currentUrl, 
+        existingPrice: currentPrice 
+      }).catch((err) => {
         // If it fails (e.g., no content script), we close and continue
         chrome.tabs.remove(tabId);
         activeTabId = null;

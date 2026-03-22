@@ -12,43 +12,98 @@ let userSettings = {
 let deepScanInProgress = false;
 let deepScanQueueLength = 0;
 
+function setCardDimmed(container, isDimmed) {
+  if (isDimmed) {
+    container.classList.add('fb-filter-dimmed');
+  } else {
+    container.classList.remove('fb-filter-dimmed');
+  }
+}
+
+function addBadge(container, text, bgColor = null, textColor = null) {
+  const oldBadge = container.querySelector('.ntmf-reason-badge');
+  if (oldBadge) oldBadge.remove();
+
+  if (window.getComputedStyle(container).position === 'static') {
+    container.style.position = 'relative';
+  }
+
+  const badge = document.createElement('div');
+  badge.className = 'ntmf-reason-badge';
+  badge.innerText = text;
+  if (bgColor) badge.style.background = bgColor;
+  if (textColor) badge.style.color = textColor;
+  container.appendChild(badge);
+}
+
 // Load settings
-const loadSettings = () => {
+const loadSettings = (isDeepScan = false) => {
   chrome.storage.sync.get(['settings'], (result) => {
     if (result.settings) {
       userSettings = { ...userSettings, ...result.settings };
-      applyFilterToAll();
+      if (!isDeepScan) applyFilterToAll();
     }
   });
 };
 
-const performDeepScan = async (url) => {
-  const clickSeeMore = () => {
+const performDeepScan = async (url, existingPrice) => {
+  // Check cache first
+  const cacheKey = `ds_${url}`;
+  const cached = await new Promise(resolve => chrome.storage.local.get([cacheKey], res => resolve(res[cacheKey])));
+  if (cached !== undefined) return cached;
+
+  const getListingContainer = () => {
     return new Promise(resolve => {
-      const allDivs = Array.from(document.querySelectorAll('div'));
-      const descDiv = allDivs.find(d => d.innerText.trim() === 'Description' || d.innerText.trim() === 'Mô tả');
+      const allDivs = Array.from(document.querySelectorAll('div, span'));
+      const descDiv = allDivs.find(d => d.innerText && (d.innerText.trim() === 'Description' || d.innerText.trim() === 'Mô tả'));
       if (descDiv) {
         let current = descDiv;
+        let container = null;
         while (current && current !== document.body) {
+          if (!container && current.innerText.length > descDiv.innerText.length + 15) {
+            container = current;
+          }
           const seeMore = Array.from(current.querySelectorAll('div[role="button"], span[dir="auto"]')).find(el => {
-            const txt = el.innerText.trim().toLowerCase();
+            const txt = el.innerText ? el.innerText.trim().toLowerCase() : '';
             return txt === 'see more' || txt === 'xem thêm';
           });
           if (seeMore) {
             seeMore.click();
-            setTimeout(resolve, 800);
+            setTimeout(() => resolve(current), 400);
             return;
           }
           current = current.parentElement;
         }
+        resolve(container || descDiv.parentElement || document.body);
+      } else {
+        const main = document.querySelector('[role="main"]');
+        resolve(main || document.body);
       }
-      resolve();
     });
   };
 
-  await clickSeeMore();
-  
-  const listingText = document.body.innerText;
+  const container = await getListingContainer();
+
+  // Physically hide "Today's picks" and anything after it to prevent parser from catching extra text
+  const walkAndHideSiblings = (node) => {
+    let current = node;
+    while (current && current !== document.body) {
+      let sibling = current.nextElementSibling;
+      while (sibling) {
+        sibling.style.display = 'none';
+        sibling = sibling.nextElementSibling;
+      }
+      current = current.parentElement;
+    }
+  };
+
+  const todaysPicksHeaders = Array.from(document.querySelectorAll('h2, span, div')).filter(el => el.innerText && el.innerText.trim().toLowerCase() === "today's picks");
+  todaysPicksHeaders.forEach(el => {
+    el.style.display = 'none';
+    walkAndHideSiblings(el);
+  });
+
+  const listingText = container.innerText;
   const textLower = listingText.toLowerCase();
   
   const excludeKws = parseKeywords(userSettings.excludeKeywords.join(','));
@@ -56,9 +111,8 @@ const performDeepScan = async (url) => {
 
   let filterReason = "";
 
-  // Find price-like string for normalizePrice
-  const priceMatch = textLower.match(/(?:(?:₫|\$)\s*\d+[\d.,]*|\d+[\d.,]*\s*(?:tr|triệu|vnd|million|đ|₫|k)\b)/);
-  const normalizedPrice = priceMatch ? normalizePrice(priceMatch[0], listingText) : null;
+  // Only check price in description if it wasn't found in the grid (e.g. was "Free")
+  const normalizedPrice = (existingPrice !== null && existingPrice !== undefined) ? existingPrice : extractPrice(listingText);
   
   if (normalizedPrice !== null) {
     if (normalizedPrice < userSettings.minPrice) filterReason = `Price too low (${(normalizedPrice/1000000).toFixed(1)}M)`;
@@ -75,6 +129,8 @@ const performDeepScan = async (url) => {
     if (!matched) filterReason = `Missing required keywords`;
   }
 
+  // Save to cache
+  chrome.storage.local.set({ [cacheKey]: filterReason });
   return filterReason;
 };
 
@@ -89,63 +145,100 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === "deepScanComplete") {
     deepScanInProgress = false;
     updateStatusBar();
+  } else if (request.action === "deepScanStatus") {
+    const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
+    listings.forEach(link => {
+      if (link.href.includes(request.url)) {
+        const container = link.closest('div[style*="max-width"]') || link.parentElement;
+        if (container) {
+          const badge = container.querySelector('.ntmf-reason-badge');
+          if (badge) {
+            badge.innerText = 'Deep: ' + request.status;
+            badge.style.background = '#0866ff'; 
+            badge.style.color = 'white';
+          }
+        }
+      }
+    });
   } else if (request.action === "updateListing") {
     const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
     listings.forEach(link => {
       if (link.href.includes(request.url)) {
         const container = link.closest('div[style*="max-width"]') || link.parentElement;
-        if (container && request.reason) {
-          container.classList.add('fb-filter-dimmed');
-          const oldBadge = container.querySelector('.ntmf-reason-badge');
-          if (oldBadge) oldBadge.remove();
-          const badge = document.createElement('div');
-          badge.className = 'ntmf-reason-badge';
-          badge.innerText = 'Deep: ' + request.reason;
-          badge.style.background = 'purple';
-          container.appendChild(badge);
+        if (container) {
+          if (request.reason) {
+            setCardDimmed(container, true);
+            addBadge(container, 'Deep: ' + request.reason, '#0866ff', 'white');
+          } else {
+            setCardDimmed(container, false);
+            const oldBadge = container.querySelector('.ntmf-reason-badge');
+            if (oldBadge) oldBadge.remove();
+          }
         }
       }
     });
   } else if (request.action === "performDeepScan") {
-    performDeepScan(request.url).then(reason => {
+    performDeepScan(request.url, request.existingPrice).then(reason => {
       chrome.runtime.sendMessage({ action: 'deepScanResult', url: request.url, reason });
     });
   } else if (request.action === "clearCache") {
     const badges = document.querySelectorAll('.ntmf-reason-badge');
     badges.forEach(b => b.remove());
     const dimmed = document.querySelectorAll('.fb-filter-dimmed');
-    dimmed.forEach(d => d.classList.remove('fb-filter-dimmed'));
+    dimmed.forEach(d => setCardDimmed(d, false));
     applyFilterToAll();
   }
 });
 
-const filterListing = (container) => {
+const filterListing = (container, cache = {}) => {
   const oldBadge = container.querySelector('.ntmf-reason-badge');
   if (oldBadge && !oldBadge.innerText.startsWith('Deep:')) oldBadge.remove();
 
   if (!userSettings.enabled) {
-    container.classList.remove('fb-filter-dimmed');
+    setCardDimmed(container, false);
     return false;
   }
 
-  // If already deep filtered, don't remove it
-  if (oldBadge && oldBadge.innerText.startsWith('Deep:')) {
-    container.classList.add('fb-filter-dimmed');
-    return true;
+  const anchor = container.querySelector('a[href*="/marketplace/item/"]') || container;
+  const urlObj = new URL(anchor.href);
+  urlObj.search = '';
+  const cleanUrl = urlObj.href;
+
+  // 1. Check cache FIRST (Automatic application)
+  const cachedReason = cache[`ds_${cleanUrl}`];
+  if (cachedReason !== undefined) {
+    if (cachedReason) {
+      setCardDimmed(container, true);
+      addBadge(container, 'Deep: ' + cachedReason, '#0866ff', 'white');
+      return true;
+    } else {
+      // Valid cached listing - ensure no dimming and no deep badges
+      setCardDimmed(container, false);
+      if (oldBadge && oldBadge.innerText.startsWith('Deep:')) oldBadge.remove();
+      // Continue to check grid-level filters (price/kws) below
+    }
   }
 
-  const anchor = container.querySelector('a[href*="/marketplace/item/"]') || container;
+  // If currently scanning or queued - NO DIMMING
+  if (oldBadge && (oldBadge.innerText.includes('Queued') || oldBadge.innerText.includes('Scanning'))) {
+    setCardDimmed(container, false);
+    return false;
+  }
+
   const label = anchor.getAttribute('aria-label') || "";
-  
   const textLines = (container.innerText || "").split('\n');
   const priceLine = textLines.find(line => {
     const t = line.toLowerCase();
-    return t.includes('₫') || t.includes('$') || t.includes('price') || t.includes('free') || t.includes('miễn phí');
+    return t.includes('₫') || t.includes('$') || t.includes('price') || t.includes('free');
   });
 
   let priceRaw = "";
   if (priceLine) {
-    priceRaw = priceLine;
+    if (priceLine.toLowerCase().includes('free')) {
+      priceRaw = ""; 
+    } else {
+      priceRaw = priceLine;
+    }
   } else if (label) {
     const parts = label.split(' · ');
     priceRaw = parts.find(p => {
@@ -155,7 +248,7 @@ const filterListing = (container) => {
   }
 
   const listingText = container.innerText;
-  const normalizedPrice = normalizePrice(priceRaw, listingText);
+  const normalizedPrice = extractPrice(priceRaw || listingText);
   const textLower = listingText.toLowerCase();
   
   const excludeKws = parseKeywords(userSettings.excludeKeywords.join(','));
@@ -163,53 +256,84 @@ const filterListing = (container) => {
 
   let filterReason = "";
 
-  // 1. Price Check
   if (normalizedPrice !== null) {
     if (normalizedPrice < userSettings.minPrice) filterReason = `Price too low (${(normalizedPrice/1000000).toFixed(1)}M)`;
     else if (normalizedPrice > userSettings.maxPrice) filterReason = `Price too high (${(normalizedPrice/1000000).toFixed(1)}M)`;
   }
 
-  // 2. Exclude Keywords
   if (!filterReason && excludeKws.length > 0) {
     const matched = excludeKws.find(kw => textLower.includes(kw));
     if (matched) filterReason = `Has word: "${matched}"`;
   }
 
-  // 3. Include Keywords
   if (!filterReason && includeKws.length > 0) {
     const matched = includeKws.some(kw => textLower.includes(kw));
     if (!matched) filterReason = `Missing required keywords`;
   }
 
   if (filterReason) {
-    container.classList.add('fb-filter-dimmed');
-    const badge = document.createElement('div');
-    badge.className = 'ntmf-reason-badge';
-    badge.innerText = filterReason;
-    container.appendChild(badge);
+    setCardDimmed(container, true);
+    addBadge(container, filterReason);
     return true;
   } else {
-    container.classList.remove('fb-filter-dimmed');
+    setCardDimmed(container, false);
     return false;
   }
 };
 
 let stats = { total: 0, filtered: 0 };
 
-const startDeepScan = () => {
+const startDeepScan = async () => {
   if (deepScanInProgress) return;
   const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
   const urlsToScan = [];
+  
+  const allCache = await new Promise(resolve => chrome.storage.local.get(null, resolve));
+
   listings.forEach(link => {
     const container = link.closest('div[style*="max-width"]') || link.parentElement;
     if (container && !container.classList.contains('fb-filter-dimmed')) {
       const url = new URL(link.href);
-      url.search = ''; // Clean params
-      if (!urlsToScan.includes(url.href)) urlsToScan.push(url.href);
+      url.search = ''; 
+      const cleanUrl = url.href;
+      
+      const cachedReason = allCache[`ds_${cleanUrl}`];
+      if (cachedReason !== undefined) {
+        if (cachedReason) {
+          setCardDimmed(container, true);
+          addBadge(container, 'Deep: ' + cachedReason, '#0866ff', 'white');
+        } else {
+          setCardDimmed(container, false);
+          const badge = container.querySelector('.ntmf-reason-badge');
+          if (badge && badge.innerText.startsWith('Deep:')) badge.remove();
+        }
+        return;
+      }
+
+      const label = link.getAttribute('aria-label') || "";
+      const textLines = (container.innerText || "").split('\n');
+      const priceLine = textLines.find(line => {
+        const t = line.toLowerCase();
+        return t.includes('₫') || t.includes('$') || t.includes('price') || t.includes('free');
+      });
+      let priceRaw = priceLine && !priceLine.toLowerCase().includes('free') ? priceLine : "";
+      if (!priceRaw && label) {
+          const parts = label.split(' · ');
+          priceRaw = parts.find(p => p.includes('₫') || p.includes('$')) || "";
+      }
+      const existingPrice = extractPrice(priceRaw);
+
+      if (!urlsToScan.find(u => u.url === cleanUrl)) {
+        urlsToScan.push({ url: cleanUrl, existingPrice: existingPrice });
+      }
+      addBadge(container, 'In queue', '#0866ff', 'white');
     }
   });
   
-  if (urlsToScan.length === 0) return alert('No unfiltered items to DeepScan.');
+  if (urlsToScan.length === 0) {
+    applyFilterToAll(); 
+    return;
+  }
   
   deepScanInProgress = true;
   deepScanQueueLength = urlsToScan.length;
@@ -261,15 +385,16 @@ const updateStatusBar = (isScanning = false) => {
   dsBtn.style.opacity = deepScanInProgress ? '0.5' : '1';
   dsBtn.innerText = deepScanInProgress ? 'Scanning...' : 'DeepScan';
 
-  if (!isScanning && !deepScanInProgress) setTimeout(() => { bar.style.opacity = '0.7'; }, 3000);
+  if (!isScanning && !deepScanInProgress) setTimeout(() => { bar.style.opacity = '0.7'; }, 1500);
 };
 
-const applyFilterToAll = () => {
+const applyFilterToAll = async () => {
   updateStatusBar(true);
   const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
   stats.total = 0;
   stats.filtered = 0;
   
+  const cache = await new Promise(resolve => chrome.storage.local.get(null, resolve));
   const processedContainers = new Set();
 
   listings.forEach(link => {
@@ -277,7 +402,7 @@ const applyFilterToAll = () => {
     if (container && !processedContainers.has(container)) {
       processedContainers.add(container);
       stats.total++;
-      if (filterListing(container)) stats.filtered++;
+      if (filterListing(container, cache)) stats.filtered++;
     }
   });
   updateStatusBar(false);
@@ -297,7 +422,7 @@ const observer = new MutationObserver((mutations) => {
   
   if (needsUpdate) {
     clearTimeout(window.ntmfTimer);
-    window.ntmfTimer = setTimeout(applyFilterToAll, 500);
+    window.ntmfTimer = setTimeout(applyFilterToAll, 250);
   }
 });
 
@@ -307,9 +432,13 @@ const init = () => {
   console.log("[FaceDong] Initialized.");
 };
 
-const waitForDOM = setInterval(() => {
-  if (document.querySelector('a[href*="/marketplace/item/"]')) {
-    clearInterval(waitForDOM);
-    init();
-  }
-}, 1000);
+if (window.location.search.includes('ntmf_deepscan=1')) {
+  loadSettings(true);
+} else {
+  const waitForDOM = setInterval(() => {
+    if (document.querySelector('a[href*="/marketplace/item/"]')) {
+      clearInterval(waitForDOM);
+      init();
+    }
+  }, 1000);
+}
