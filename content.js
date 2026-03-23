@@ -12,6 +12,8 @@ let userSettings = {
 
 let deepScanInProgress = false;
 let deepScanQueueLength = 0;
+let seenUrls = new Set();
+let filteredUrls = new Set();
 
 function setCardDimmed(container, isDimmed) {
   if (isDimmed) {
@@ -23,6 +25,7 @@ function setCardDimmed(container, isDimmed) {
 
 function addBadge(container, text, bgColor = null, textColor = null) {
   const oldBadge = container.querySelector('.ntmf-reason-badge');
+  if (oldBadge && oldBadge.innerText === text) return;
   if (oldBadge) oldBadge.remove();
 
   if (window.getComputedStyle(container).position === 'static') {
@@ -175,7 +178,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     deepScanQueueLength = request.remaining;
     updateStatusBar();
   } else if (request.action === "deepScanComplete") {
-    deepScanInProgress = false;
+    deepScanQueueLength = 0;
     updateStatusBar();
   } else if (request.action === "deepScanStatus") {
     const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
@@ -217,6 +220,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     badges.forEach(b => b.remove());
     const dimmed = document.querySelectorAll('.fb-filter-dimmed');
     dimmed.forEach(d => setCardDimmed(d, false));
+    seenUrls.clear();
+    filteredUrls.clear();
     applyFilterToAll();
   }
 });
@@ -318,10 +323,12 @@ const filterListing = (container, cache = {}) => {
   }
 };
 
-let stats = { total: 0, filtered: 0 };
 
 const startDeepScan = async () => {
   if (deepScanInProgress) return;
+  deepScanInProgress = true;
+  updateStatusBar();
+  
   const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
   const urlsToScan = [];
   
@@ -368,7 +375,8 @@ const startDeepScan = async () => {
   });
   
   if (urlsToScan.length === 0) {
-    applyFilterToAll(); 
+    await applyFilterToAll(); 
+    showTransientStatus('All items cached ✅');
     return;
   }
   
@@ -384,6 +392,20 @@ const stopDeepScan = () => {
   deepScanQueueLength = 0;
   chrome.runtime.sendMessage({ action: 'stopDeepScan' });
   updateStatusBar();
+};
+
+const showTransientStatus = (message) => {
+  const bar = createStatusBar();
+  const textSpan = document.getElementById('ntmf-status-text');
+  const originalHTML = textSpan.innerHTML;
+  
+  textSpan.innerHTML = `<span style="color: #00e676;">${message}</span>`;
+  bar.style.opacity = '1';
+  
+  setTimeout(() => {
+    textSpan.innerHTML = originalHTML;
+    if (!deepScanInProgress) bar.style.opacity = '0.7';
+  }, 2000);
 };
 
 const createStatusBar = () => {
@@ -404,12 +426,19 @@ const createStatusBar = () => {
     textSpan.id = 'ntmf-status-text';
     bar.appendChild(textSpan);
 
-    const toggleLabel = document.createElement('label');
-    toggleLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; cursor: pointer; background: white; color: black; padding: 4px 8px; border-radius: 10px; font-size: 11px;';
+    const toggleContainer = document.createElement('div');
+    toggleContainer.style.cssText = 'display: flex; align-items: center; gap: 6px; background: white; color: black; padding: 4px 8px; border-radius: 12px; font-size: 11px;';
+    
+    const label = document.createElement('span');
+    label.innerText = 'Auto-Deep';
+    toggleContainer.appendChild(label);
+
+    const switchLabel = document.createElement('label');
+    switchLabel.className = 'ntmf-switch';
+    
     const toggleInput = document.createElement('input');
     toggleInput.type = 'checkbox';
     toggleInput.id = 'ntmf-deepscan-toggle';
-    toggleInput.style.cssText = 'margin: 0; width: 12px; height: 12px; cursor: pointer;';
     toggleInput.onchange = (e) => {
       if (e.target.checked) {
         startDeepScan();
@@ -417,17 +446,15 @@ const createStatusBar = () => {
         stopDeepScan();
       }
     };
-    toggleLabel.appendChild(toggleInput);
-    toggleLabel.appendChild(document.createTextNode('Auto-Deep'));
-    bar.appendChild(toggleLabel);
 
-    const stopBtn = document.createElement('button');
-    stopBtn.id = 'ntmf-stop-btn';
-    stopBtn.innerText = 'Stop';
-    stopBtn.style.cssText = 'background: #ff4d4d; color: white; border: none; padding: 4px 8px; border-radius: 10px; cursor: pointer; font-size: 11px; font-weight: bold; display: none;';
-    stopBtn.onclick = stopDeepScan;
-    bar.appendChild(stopBtn);
+    const slider = document.createElement('span');
+    slider.className = 'ntmf-slider';
 
+    switchLabel.appendChild(toggleInput);
+    switchLabel.appendChild(slider);
+    toggleContainer.appendChild(switchLabel);
+    
+    bar.appendChild(toggleContainer);
     document.body.appendChild(bar);
   }
   return bar;
@@ -438,14 +465,17 @@ const updateStatusBar = (isScanning = false) => {
   bar.style.opacity = '1';
   
   const textSpan = document.getElementById('ntmf-status-text');
-  let dsText = deepScanInProgress ? ` | DeepScan: ${deepScanQueueLength} left` : '';
-  textSpan.innerHTML = `${isScanning ? '🔍 Scanning... ' : '✅ '} Filtered ${stats.filtered} of ${stats.total}${dsText}`;
+  let dsText = '';
+  if (deepScanInProgress) {
+    dsText = deepScanQueueLength > 0 ? ` | DeepScan: ${deepScanQueueLength} left` : ' | Auto-Deep ON';
+  }
   
-  const stopBtn = document.getElementById('ntmf-stop-btn');
+  textSpan.innerHTML = `${isScanning ? '🔍 Scanning... ' : '✅ '} Filtered ${filteredUrls.size} of ${seenUrls.size}${dsText}`;
+  
   const toggleInput = document.getElementById('ntmf-deepscan-toggle');
-  
-  toggleInput.checked = deepScanInProgress;
-  stopBtn.style.display = deepScanInProgress ? 'inline-block' : 'none';
+  if (toggleInput) {
+    toggleInput.checked = deepScanInProgress;
+  }
 
   if (!isScanning && !deepScanInProgress) setTimeout(() => { bar.style.opacity = '0.7'; }, 1500);
 };
@@ -453,8 +483,6 @@ const updateStatusBar = (isScanning = false) => {
 const applyFilterToAll = async () => {
   updateStatusBar(true);
   const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
-  stats.total = 0;
-  stats.filtered = 0;
   
   const cache = await new Promise(resolve => chrome.storage.local.get(null, resolve));
   const processedContainers = new Set();
@@ -463,8 +491,17 @@ const applyFilterToAll = async () => {
     const container = link.closest('div[style*="max-width"]') || link.parentElement;
     if (container && !processedContainers.has(container)) {
       processedContainers.add(container);
-      stats.total++;
-      if (filterListing(container, cache)) stats.filtered++;
+      
+      const urlObj = new URL(link.href);
+      urlObj.search = '';
+      const cleanUrl = urlObj.href;
+      
+      seenUrls.add(cleanUrl);
+      if (filterListing(container, cache)) {
+        filteredUrls.add(cleanUrl);
+      } else {
+        filteredUrls.delete(cleanUrl);
+      }
     }
   });
   updateStatusBar(false);
@@ -484,8 +521,8 @@ const observer = new MutationObserver((mutations) => {
   
   if (needsUpdate) {
     clearTimeout(window.ntmfTimer);
-    window.ntmfTimer = setTimeout(() => {
-      applyFilterToAll();
+    window.ntmfTimer = setTimeout(async () => {
+      await applyFilterToAll();
       if (deepScanInProgress) {
         // Auto-add new items to current scan
         const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');

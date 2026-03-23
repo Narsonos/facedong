@@ -77,7 +77,7 @@ function processNext() {
     
     if (mainTabId) {
       chrome.tabs.sendMessage(mainTabId, { action: 'deepScanProgress', remaining: queue.length + activeTabs.size + pendingCount }).catch(() => {});
-      chrome.tabs.sendMessage(mainTabId, { action: 'deepScanStatus', url: item.url, status: 'Scanning...' }).catch(() => {});
+      chrome.tabs.sendMessage(mainTabId, { action: 'deepScanStatus', url: item.url, status: '🔍 Scanning...' }).catch(() => {});
     }
 
     const targetUrl = new URL(item.url);
