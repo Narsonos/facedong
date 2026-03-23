@@ -379,6 +379,13 @@ const startDeepScan = async () => {
   chrome.runtime.sendMessage({ action: 'startDeepScan', urls: urlsToScan });
 };
 
+const stopDeepScan = () => {
+  deepScanInProgress = false;
+  deepScanQueueLength = 0;
+  chrome.runtime.sendMessage({ action: 'stopDeepScan' });
+  updateStatusBar();
+};
+
 const createStatusBar = () => {
   let bar = document.getElementById('ntmf-status-bar');
   if (!bar) {
@@ -390,19 +397,36 @@ const createStatusBar = () => {
       padding: 8px 15px; border-radius: 20px;
       font-size: 12px; font-weight: bold; z-index: 9999;
       box-shadow: 0 2px 10px rgba(0,0,0,0.2); transition: opacity 0.5s;
-      display: flex; align-items: center;
+      display: flex; align-items: center; gap: 8px;
     `;
     
     const textSpan = document.createElement('span');
     textSpan.id = 'ntmf-status-text';
     bar.appendChild(textSpan);
 
-    const dsBtn = document.createElement('button');
-    dsBtn.id = 'ntmf-deepscan-btn';
-    dsBtn.innerText = 'DeepScan';
-    dsBtn.style.cssText = 'margin-left: 10px; background: white; color: black; border: none; padding: 4px 8px; border-radius: 10px; cursor: pointer; font-size: 11px; font-weight: bold;';
-    dsBtn.onclick = startDeepScan;
-    bar.appendChild(dsBtn);
+    const toggleLabel = document.createElement('label');
+    toggleLabel.style.cssText = 'display: flex; align-items: center; gap: 4px; cursor: pointer; background: white; color: black; padding: 4px 8px; border-radius: 10px; font-size: 11px;';
+    const toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.id = 'ntmf-deepscan-toggle';
+    toggleInput.style.cssText = 'margin: 0; width: 12px; height: 12px; cursor: pointer;';
+    toggleInput.onchange = (e) => {
+      if (e.target.checked) {
+        startDeepScan();
+      } else {
+        stopDeepScan();
+      }
+    };
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(document.createTextNode('Auto-Deep'));
+    bar.appendChild(toggleLabel);
+
+    const stopBtn = document.createElement('button');
+    stopBtn.id = 'ntmf-stop-btn';
+    stopBtn.innerText = 'Stop';
+    stopBtn.style.cssText = 'background: #ff4d4d; color: white; border: none; padding: 4px 8px; border-radius: 10px; cursor: pointer; font-size: 11px; font-weight: bold; display: none;';
+    stopBtn.onclick = stopDeepScan;
+    bar.appendChild(stopBtn);
 
     document.body.appendChild(bar);
   }
@@ -417,10 +441,11 @@ const updateStatusBar = (isScanning = false) => {
   let dsText = deepScanInProgress ? ` | DeepScan: ${deepScanQueueLength} left` : '';
   textSpan.innerHTML = `${isScanning ? '🔍 Scanning... ' : '✅ '} Filtered ${stats.filtered} of ${stats.total}${dsText}`;
   
-  const dsBtn = document.getElementById('ntmf-deepscan-btn');
-  dsBtn.disabled = deepScanInProgress;
-  dsBtn.style.opacity = deepScanInProgress ? '0.5' : '1';
-  dsBtn.innerText = deepScanInProgress ? 'Scanning...' : 'DeepScan';
+  const stopBtn = document.getElementById('ntmf-stop-btn');
+  const toggleInput = document.getElementById('ntmf-deepscan-toggle');
+  
+  toggleInput.checked = deepScanInProgress;
+  stopBtn.style.display = deepScanInProgress ? 'inline-block' : 'none';
 
   if (!isScanning && !deepScanInProgress) setTimeout(() => { bar.style.opacity = '0.7'; }, 1500);
 };

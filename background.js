@@ -37,6 +37,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     processNext();
     sendResponse({ status: 'added' });
+  } else if (request.action === 'stopDeepScan') {
+    queue = [];
+    activeTabs.forEach((val, tabId) => {
+      chrome.tabs.remove(tabId);
+    });
+    activeTabs.clear();
+    pendingCount = 0;
+    mainTabId = null;
+    sendResponse({ status: 'stopped' });
   } else if (request.action === 'deepScanResult') {
     if (mainTabId) {
       chrome.tabs.sendMessage(mainTabId, {
