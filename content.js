@@ -6,7 +6,8 @@ let userSettings = {
   minPrice: 0,
   maxPrice: 30000000,
   excludeKeywords: ["studio", "CT1", "chung cư"],
-  includeKeywords: []
+  includeKeywords: [],
+  deepScanWorkers: 1
 };
 
 let deepScanInProgress = false;
@@ -54,35 +55,66 @@ const performDeepScan = async (url, existingPrice) => {
 
   const getListingContainer = () => {
     return new Promise(resolve => {
-      const allDivs = Array.from(document.querySelectorAll('div, span'));
-      const descDiv = allDivs.find(d => d.innerText && (d.innerText.trim() === 'Description' || d.innerText.trim() === 'Mô tả'));
-      if (descDiv) {
-        let current = descDiv;
-        let container = null;
-        while (current && current !== document.body) {
-          if (!container && current.innerText.length > descDiv.innerText.length + 15) {
-            container = current;
+      let attempts = 0;
+      const check = () => {
+        const allDivs = Array.from(document.querySelectorAll('div, span'));
+        const descDiv = allDivs.find(d => d.innerText && (d.innerText.trim() === 'Description' || d.innerText.trim() === 'Mô tả'));
+        
+        // Also check if the price element is already there
+        const priceSpan = allDivs.find(s => {
+          const text = s.innerText || "";
+          return (text.includes('₫') || text.includes('$')) && 
+                 (text.toLowerCase().includes('/ month') || text.toLowerCase().includes('/ tháng'));
+        });
+
+        if (descDiv || priceSpan || attempts > 30) {
+          if (descDiv) {
+            let current = descDiv;
+            let container = null;
+            while (current && current !== document.body) {
+              if (!container && current.innerText.length > descDiv.innerText.length + 15) {
+                container = current;
+              }
+              const seeMore = Array.from(current.querySelectorAll('div[role="button"], span[dir="auto"]')).find(el => {
+                const txt = el.innerText ? el.innerText.trim().toLowerCase() : '';
+                return txt === 'see more' || txt === 'xem thêm';
+              });
+              if (seeMore) {
+                seeMore.click();
+                setTimeout(() => resolve(current), 400);
+                return;
+              }
+              current = current.parentElement;
+            }
+            resolve(container || descDiv.parentElement || document.body);
+          } else {
+            const main = document.querySelector('[role="main"]');
+            resolve(main || document.body);
           }
-          const seeMore = Array.from(current.querySelectorAll('div[role="button"], span[dir="auto"]')).find(el => {
-            const txt = el.innerText ? el.innerText.trim().toLowerCase() : '';
-            return txt === 'see more' || txt === 'xem thêm';
-          });
-          if (seeMore) {
-            seeMore.click();
-            setTimeout(() => resolve(current), 400);
-            return;
-          }
-          current = current.parentElement;
+        } else {
+          attempts++;
+          setTimeout(check, 100);
         }
-        resolve(container || descDiv.parentElement || document.body);
-      } else {
-        const main = document.querySelector('[role="main"]');
-        resolve(main || document.body);
-      }
+      };
+      check();
     });
   };
 
   const container = await getListingContainer();
+
+  // Try to find the specific price element (e.g., "13 ₫ / Month")
+  let targetPrice = existingPrice;
+  const allSpans = Array.from(document.querySelectorAll('span'));
+  const priceSpan = allSpans.find(s => {
+    const text = s.innerText || "";
+    return (text.includes('₫') || text.includes('$')) && 
+           (text.toLowerCase().includes('/ month') || text.toLowerCase().includes('/ tháng') || text.toLowerCase().includes('per month'));
+  });
+
+  if (priceSpan) {
+    const parsed = extractPrice(priceSpan.innerText);
+    if (parsed !== null) targetPrice = parsed;
+  }
 
   // Physically hide "Today's picks" and anything after it to prevent parser from catching extra text
   const walkAndHideSiblings = (node) => {
@@ -111,8 +143,8 @@ const performDeepScan = async (url, existingPrice) => {
 
   let filterReason = "";
 
-  // Only check price in description if it wasn't found in the grid (e.g. was "Free")
-  const normalizedPrice = (existingPrice !== null && existingPrice !== undefined) ? existingPrice : extractPrice(listingText);
+  // Only check price in description if it wasn't found in the grid or the specific price element
+  const normalizedPrice = (targetPrice !== null && targetPrice !== undefined) ? targetPrice : extractPrice(listingText);
   
   if (normalizedPrice !== null) {
     if (normalizedPrice < userSettings.minPrice) filterReason = `Price too low (${(normalizedPrice/1000000).toFixed(1)}M)`;
@@ -192,7 +224,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 const filterListing = (container, cache = {}) => {
   const oldBadge = container.querySelector('.ntmf-reason-badge');
-  if (oldBadge && !oldBadge.innerText.startsWith('Deep:')) oldBadge.remove();
+  
+  if (oldBadge) {
+    const text = oldBadge.innerText;
+    // If currently scanning or queued - NO DIMMING, and don't remove the badge
+    if (text.includes('Queued') || text.includes('Scanning')) {
+      setCardDimmed(container, false);
+      return false;
+    }
+    // Remove old non-Deep badges to re-evaluate
+    if (!text.startsWith('Deep:')) {
+      oldBadge.remove();
+    }
+  }
 
   if (!userSettings.enabled) {
     setCardDimmed(container, false);
@@ -217,12 +261,6 @@ const filterListing = (container, cache = {}) => {
       if (oldBadge && oldBadge.innerText.startsWith('Deep:')) oldBadge.remove();
       // Continue to check grid-level filters (price/kws) below
     }
-  }
-
-  // If currently scanning or queued - NO DIMMING
-  if (oldBadge && (oldBadge.innerText.includes('Queued') || oldBadge.innerText.includes('Scanning'))) {
-    setCardDimmed(container, false);
-    return false;
   }
 
   const label = anchor.getAttribute('aria-label') || "";
@@ -326,7 +364,7 @@ const startDeepScan = async () => {
       if (!urlsToScan.find(u => u.url === cleanUrl)) {
         urlsToScan.push({ url: cleanUrl, existingPrice: existingPrice });
       }
-      addBadge(container, 'In queue', '#0866ff', 'white');
+      addBadge(container, 'Queued', '#0866ff', 'white');
     }
   });
   
@@ -422,7 +460,33 @@ const observer = new MutationObserver((mutations) => {
   
   if (needsUpdate) {
     clearTimeout(window.ntmfTimer);
-    window.ntmfTimer = setTimeout(applyFilterToAll, 250);
+    window.ntmfTimer = setTimeout(() => {
+      applyFilterToAll();
+      if (deepScanInProgress) {
+        // Auto-add new items to current scan
+        const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
+        const urlsToAdd = [];
+        listings.forEach(link => {
+          const container = link.closest('div[style*="max-width"]') || link.parentElement;
+          if (container && !container.classList.contains('fb-filter-dimmed') && !container.querySelector('.ntmf-reason-badge')) {
+            const url = new URL(link.href);
+            url.search = '';
+            const cleanUrl = url.href;
+            
+            const label = link.getAttribute('aria-label') || "";
+            const textLines = (container.innerText || "").split('\n');
+            const priceLine = textLines.find(line => line.toLowerCase().includes('₫') || line.toLowerCase().includes('$'));
+            const existingPrice = extractPrice(priceLine || label);
+
+            urlsToAdd.push({ url: cleanUrl, existingPrice: existingPrice });
+            addBadge(container, 'Queued', '#0866ff', 'white');
+          }
+        });
+        if (urlsToAdd.length > 0) {
+          chrome.runtime.sendMessage({ action: 'addToDeepScan', urls: urlsToAdd });
+        }
+      }
+    }, 250);
   }
 });
 

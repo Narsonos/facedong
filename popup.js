@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     maxPrice: document.getElementById('maxPrice'),
     excludeKeywords: document.getElementById('excludeKeywords'),
     includeKeywords: document.getElementById('includeKeywords'),
+    deepScanWorkers: document.getElementById('deepScanWorkers'),
     themeSelect: document.getElementById('themeSelect'),
     saveBtn: document.getElementById('save'),
     clearCacheBtn: document.getElementById('clearCache')
@@ -26,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
       elements.maxPrice.value = s.maxPrice / 1000000;
       elements.excludeKeywords.value = s.excludeKeywords.join(', ');
       elements.includeKeywords.value = s.includeKeywords.join(', ');
+      elements.deepScanWorkers.value = s.deepScanWorkers || 1;
     }
     
     const theme = result.popupTheme || 'auto';
@@ -47,7 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
       minPrice: (parseFloat(elements.minPrice.value) || 0) * 1000000,
       maxPrice: (parseFloat(elements.maxPrice.value) || 100) * 1000000,
       excludeKeywords: elements.excludeKeywords.value.split(',').map(s => s.trim()).filter(s => s),
-      includeKeywords: elements.includeKeywords.value.split(',').map(s => s.trim()).filter(s => s)
+      includeKeywords: elements.includeKeywords.value.split(',').map(s => s.trim()).filter(s => s),
+      deepScanWorkers: parseInt(elements.deepScanWorkers.value) || 1
     };
 
     chrome.storage.sync.set({ settings }, () => {
