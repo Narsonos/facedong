@@ -25,9 +25,6 @@ FaceDong fixes all of this.
 - 🏷️ **Reason Badges**: Every filtered listing shows exactly why it was hidden (e.g., "Price too high" or "Has word: studio").
 - ⚡ **Instant Re-scan**: Changes applied in the popup take effect immediately without a page refresh.
 
-## Future plans
-- The primary unsolved problem is to add deep inspection of each listing, so the extension would analyze not only the text below the card, but the card description, the listing itself.
-
 ## How to use it?
 
 ### Installation
