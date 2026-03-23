@@ -23,6 +23,8 @@ FaceDong fixes all of this.
 - 🌑 **Dark/Light Mode**: Matches your system theme or can be toggled manually in the popup.
 - 📜 **Infinite Scroll Support**: Keeps filtering as you scroll down the Marketplace feed.
 - 🏷️ **Reason Badges**: Every filtered listing shows exactly why it was hidden (e.g., "Price too high" or "Has word: studio").
+- 🧪 **DeepScan**: Deep analysis of listings by opening hidden tabs to parse full descriptions and hidden prices.
+- ⚙️ **Adjustable Workers**: Control the number of parallel DeepScan workers (1-5) for faster scanning.
 - ⚡ **Instant Re-scan**: Changes applied in the popup take effect immediately without a page refresh.
 
 ## How to use it?
@@ -35,6 +37,8 @@ FaceDong fixes all of this.
 5. Head over to [Facebook Marketplace](https://www.facebook.com/marketplace/) and start searching!
 
 ### Tips
+- **DeepScan**: Use the DeepScan button to analyze listings more thoroughly. It opens hidden tabs to read full descriptions, which helps find keywords and prices that aren't visible in the main grid.
+- **Workers**: If you have a fast computer, increase the "DeepScan Workers" setting in the popup to scan up to 5 listings simultaneously.
 - **Quotes for Phrases**: Use quotes in the keyword fields to filter exact phrases, e.g., `"view biển"` or `"2 bedroom"`.
 - **Price Range**: Enter your min/max prices in **Millions VND** (e.g., enter `5` for 5,000,000).
 - **Hover to Reveal**: Filtered listings are dimmed but not deleted. Just hover over them to see the original content.
