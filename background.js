@@ -16,7 +16,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.settings && changes.settings.newValue) {
     if (changes.settings.newValue.deepScanWorkers) {
       maxWorkers = changes.settings.newValue.deepScanWorkers;
-      processNext();
+      if (queue.length > 0 || activeTabs.size > 0 || pendingCount > 0) {
+        processNext();
+      }
     }
   }
 });
@@ -55,6 +57,7 @@ function processNext() {
   if (queue.length === 0 && activeTabs.size === 0 && pendingCount === 0) {
     if (mainTabId) {
       chrome.tabs.sendMessage(mainTabId, { action: 'deepScanComplete' }).catch(() => {});
+      mainTabId = null;
     }
     return;
   }

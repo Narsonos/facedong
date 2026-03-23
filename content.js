@@ -203,8 +203,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             addBadge(container, 'Deep: ' + request.reason, '#0866ff', 'white');
           } else {
             setCardDimmed(container, false);
-            const oldBadge = container.querySelector('.ntmf-reason-badge');
-            if (oldBadge) oldBadge.remove();
+            addBadge(container, 'Deep: ✅ Clean', '#00a400', 'white');
           }
         }
       }
@@ -228,7 +227,7 @@ const filterListing = (container, cache = {}) => {
   if (oldBadge) {
     const text = oldBadge.innerText;
     // If currently scanning or queued - NO DIMMING, and don't remove the badge
-    if (text.includes('Queued') || text.includes('Scanning')) {
+    if (text.includes('⏳ Queued') || text.includes('Scanning')) {
       setCardDimmed(container, false);
       return false;
     }
@@ -256,9 +255,9 @@ const filterListing = (container, cache = {}) => {
       addBadge(container, 'Deep: ' + cachedReason, '#0866ff', 'white');
       return true;
     } else {
-      // Valid cached listing - ensure no dimming and no deep badges
+      // Valid cached listing - show Clean badge
       setCardDimmed(container, false);
-      if (oldBadge && oldBadge.innerText.startsWith('Deep:')) oldBadge.remove();
+      addBadge(container, 'Deep: ✅ Clean', '#00a400', 'white');
       // Continue to check grid-level filters (price/kws) below
     }
   }
@@ -364,7 +363,7 @@ const startDeepScan = async () => {
       if (!urlsToScan.find(u => u.url === cleanUrl)) {
         urlsToScan.push({ url: cleanUrl, existingPrice: existingPrice });
       }
-      addBadge(container, 'Queued', '#0866ff', 'white');
+      addBadge(container, '⏳ Queued', '#0866ff', 'white');
     }
   });
   
@@ -479,7 +478,7 @@ const observer = new MutationObserver((mutations) => {
             const existingPrice = extractPrice(priceLine || label);
 
             urlsToAdd.push({ url: cleanUrl, existingPrice: existingPrice });
-            addBadge(container, 'Queued', '#0866ff', 'white');
+            addBadge(container, '⏳ Queued', '#0866ff', 'white');
           }
         });
         if (urlsToAdd.length > 0) {

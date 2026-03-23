@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Save settings
   elements.saveBtn.addEventListener('click', () => {
-    const settings = {
+    const newSettings = {
       enabled: elements.enabled.checked,
       minPrice: (parseFloat(elements.minPrice.value) || 0) * 1000000,
       maxPrice: (parseFloat(elements.maxPrice.value) || 100) * 1000000,
@@ -53,17 +53,39 @@ document.addEventListener('DOMContentLoaded', () => {
       deepScanWorkers: parseInt(elements.deepScanWorkers.value) || 1
     };
 
-    chrome.storage.sync.set({ settings }, () => {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]) {
-          chrome.tabs.sendMessage(tabs[0].id, { action: "updateSettings", settings }).catch(e => {});
-        }
-      });
+    chrome.storage.sync.get(['settings'], (result) => {
+      const oldSettings = result.settings || {};
       
-      elements.saveBtn.textContent = "Saved!";
-      setTimeout(() => {
-        elements.saveBtn.textContent = "Save & Apply";
-      }, 1500);
+      // Check if filtering-specific settings changed
+      const filterChanged = 
+        oldSettings.minPrice !== newSettings.minPrice ||
+        oldSettings.maxPrice !== newSettings.maxPrice ||
+        JSON.stringify(oldSettings.excludeKeywords) !== JSON.stringify(newSettings.excludeKeywords) ||
+        JSON.stringify(oldSettings.includeKeywords) !== JSON.stringify(newSettings.includeKeywords) ||
+        oldSettings.enabled !== newSettings.enabled;
+
+      const saveAndNotify = () => {
+        chrome.storage.sync.set({ settings: newSettings }, () => {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+              chrome.tabs.sendMessage(tabs[0].id, { action: "updateSettings", settings: newSettings }).catch(e => {});
+            }
+          });
+          
+          elements.saveBtn.textContent = filterChanged ? "Cache Reset & Saved!" : "Saved!";
+          setTimeout(() => {
+            elements.saveBtn.textContent = "Save & Apply";
+          }, 1500);
+        });
+      };
+
+      if (filterChanged) {
+        chrome.storage.local.clear(() => {
+          saveAndNotify();
+        });
+      } else {
+        saveAndNotify();
+      }
     });
   });
 
